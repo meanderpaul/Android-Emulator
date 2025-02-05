@@ -18,7 +18,7 @@ import time
 from datetime import datetime
 
 class EmulatorSetup(tk.Tk):
-    VERSION = "1.0.2"
+    VERSION = "1.0.3"
     GITHUB_REPO = "meanderpaul/Android-Emulator"
     COMPANY_NAME = "Android Emulator Setup"
     
@@ -63,14 +63,14 @@ class EmulatorSetup(tk.Tk):
     def add_metadata(self):
         """Add metadata to help reduce false virus detections"""
         self.metadata = {
-            'CompanyName': self.COMPANY_NAME,
+            'CompanyName': self.Paul,
             'FileDescription': 'Android Emulator Setup Tool',
-            'FileVersion': self.VERSION,
+            'FileVersion': self.1.0.3,
             'InternalName': 'android_setup',
-            'LegalCopyright': f'© {datetime.now().year} {self.COMPANY_NAME}',
+            'LegalCopyright': f'© {datetime.now().year} {self.Paul}',
             'OriginalFilename': 'android_setup.exe',
             'ProductName': 'Android Emulator Setup',
-            'ProductVersion': self.VERSION
+            'ProductVersion': self.1.0.3
         }
 
     def center_window(self):
