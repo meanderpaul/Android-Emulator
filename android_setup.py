@@ -4,53 +4,117 @@ import subprocess
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
-from pathlib import Path
-import winreg
-import ctypes
 import json
 import requests
+import zipfile
+import io
+import re
+import pystray
+from PIL import Image
+import winreg
+import logging
+import tempfile
+import time
 from datetime import datetime
 
 class EmulatorSetup(tk.Tk):
+    VERSION = "1.0.2"
+    GITHUB_REPO = "meanderpaul/Android-Emulator"  # Your actual repo
+
     def __init__(self):
         super().__init__()
 
+        # Setup logging
+        logging.basicConfig(
+            filename='android_emulator.log',
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+
+        # Initialize paths and settings
+        self.setup_paths()
+        self.load_preferences()
+        
         # Window setup
-        self.title("Android Emulator Setup")
+        self.title("Android Emulator")
         self.geometry("600x400")
         self.configure(bg='#f0f0f0')
+        self.iconbitmap(os.path.join(self.ANDROID_HOME, "icon.ico"))
         
         # Center window
+        self.center_window()
+        
+        # Initialize system tray
+        self.setup_tray()
+        
+        # Create GUI
+        self.create_widgets()
+        
+        # Bind close event
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # Initialize emulator process tracking
+        self.emulator_process = None
+        self.monitor_thread = None
+
+    def center_window(self):
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         x = (screen_width - 600) // 2
         y = (screen_height - 400) // 2
         self.geometry(f"600x400+{x}+{y}")
 
-        # Style configuration
-        self.style = ttk.Style()
-        self.style.configure("Custom.TFrame", background='#f0f0f0')
-        self.style.configure("Custom.TLabel", background='#f0f0f0', font=('Segoe UI', 10))
-        self.style.configure("Header.TLabel", background='#f0f0f0', font=('Segoe UI', 12, 'bold'))
-        
-        self.create_widgets()
-        self.setup_paths()
+    def setup_paths(self):
+        self.ANDROID_HOME = os.path.join(os.path.expanduser("~"), "Desktop", "android tools")
+        self.ANDROID_SDK_ROOT = self.ANDROID_HOME
+        self.JAVA_HOME = r"C:\Program Files\Java\jdk-23"
+        self.preferences_file = os.path.join(self.ANDROID_HOME, "preferences.json")
+
+    def load_preferences(self):
+        try:
+            if os.path.exists(self.preferences_file):
+                with open(self.preferences_file, 'r') as f:
+                    self.preferences = json.load(f)
+            else:
+                self.preferences = {
+                    'auto_start': False,
+                    'minimize_to_tray': True,
+                    'last_gpu_mode': 'host',
+                    'cursor_integration': False
+                }
+                self.save_preferences()
+        except Exception as e:
+            logging.error(f"Error loading preferences: {e}")
+            self.preferences = {}
+
+    def save_preferences(self):
+        try:
+            with open(self.preferences_file, 'w') as f:
+                json.dump(self.preferences, f, indent=2)
+        except Exception as e:
+            logging.error(f"Error saving preferences: {e}")
+
+    def setup_tray(self):
+        try:
+            image = Image.open(os.path.join(self.ANDROID_HOME, "icon.ico"))
+            menu = (
+                pystray.MenuItem("Show", self.show_window),
+                pystray.MenuItem("Launch Emulator", self.launch_emulator),
+                pystray.MenuItem("Setup for Cursor", self.setup_for_cursor),
+                pystray.MenuItem("Exit", self.quit_app)
+            )
+            self.tray_icon = pystray.Icon("android_emulator", image, "Android Emulator", menu)
+            threading.Thread(target=self.tray_icon.run, daemon=True).start()
+        except Exception as e:
+            logging.error(f"Error setting up tray icon: {e}")
 
     def create_widgets(self):
         # Main frame
         self.main_frame = ttk.Frame(self, style="Custom.TFrame", padding="20")
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Header
-        self.header = ttk.Label(
-            self.main_frame,
-            text="Android Emulator Setup and Launcher",
-            style="Header.TLabel"
-        )
-        self.header.pack(pady=(0, 20))
-
         # Progress frame
-        self.progress_frame = ttk.Frame(self.main_frame, style="Custom.TFrame")
+        self.progress_frame = ttk.Frame(self.main_frame)
         self.progress_frame.pack(fill=tk.X, pady=(0, 10))
 
         # Progress bar
@@ -65,34 +129,21 @@ class EmulatorSetup(tk.Tk):
         self.status_label = ttk.Label(
             self.progress_frame,
             text="Ready to start",
-            style="Custom.TLabel"
+            wraplength=500
         )
         self.status_label.pack()
 
-        # Details text
-        self.details_text = tk.Text(
-            self.main_frame,
-            height=10,
-            width=60,
-            font=('Consolas', 9),
-            bg='#ffffff',
-            wrap=tk.WORD
-        )
-        self.details_text.pack(pady=10)
-
-        # Buttons frame
-        self.button_frame = ttk.Frame(self.main_frame, style="Custom.TFrame")
+        # Buttons
+        self.button_frame = ttk.Frame(self.main_frame)
         self.button_frame.pack(pady=10)
 
-        # Start button
-        self.start_button = ttk.Button(
+        self.setup_button = ttk.Button(
             self.button_frame,
-            text="Start Setup",
+            text="Setup/Update",
             command=self.start_setup
         )
-        self.start_button.pack(side=tk.LEFT, padx=5)
+        self.setup_button.pack(side=tk.LEFT, padx=5)
 
-        # Launch button (initially disabled)
         self.launch_button = ttk.Button(
             self.button_frame,
             text="Launch Emulator",
@@ -101,177 +152,251 @@ class EmulatorSetup(tk.Tk):
         )
         self.launch_button.pack(side=tk.LEFT, padx=5)
 
-    def setup_paths(self):
-        self.ANDROID_HOME = os.path.join(os.path.expanduser("~"), "Desktop", "android tools")
-        self.ANDROID_SDK_ROOT = self.ANDROID_HOME
-        self.JAVA_HOME = r"C:\Program Files\Java\jdk-23"
-        
-    def update_status(self, message, progress=None):
-        self.status_label.config(text=message)
-        if progress is not None:
-            self.progress['value'] = progress
-        self.details_text.insert(tk.END, f"{message}\n")
-        self.details_text.see(tk.END)
-        self.update()
+        self.cursor_button = ttk.Button(
+            self.button_frame,
+            text="Setup for Cursor",
+            command=self.setup_for_cursor
+        )
+        self.cursor_button.pack(side=tk.LEFT, padx=5)
 
-    def check_admin(self):
+        # Settings
+        self.settings_frame = ttk.LabelFrame(self.main_frame, text="Settings")
+        self.settings_frame.pack(fill=tk.X, pady=10)
+
+        self.auto_start_var = tk.BooleanVar(value=self.preferences.get('auto_start', False))
+        self.minimize_var = tk.BooleanVar(value=self.preferences.get('minimize_to_tray', True))
+        self.cursor_var = tk.BooleanVar(value=self.preferences.get('cursor_integration', False))
+
+        ttk.Checkbutton(
+            self.settings_frame,
+            text="Auto-start emulator after setup",
+            variable=self.auto_start_var,
+            command=self.save_preferences
+        ).pack(anchor=tk.W, padx=5)
+
+        ttk.Checkbutton(
+            self.settings_frame,
+            text="Minimize to tray",
+            variable=self.minimize_var,
+            command=self.save_preferences
+        ).pack(anchor=tk.W, padx=5)
+
+        ttk.Checkbutton(
+            self.settings_frame,
+            text="Enable Cursor integration",
+            variable=self.cursor_var,
+            command=self.save_preferences
+        ).pack(anchor=tk.W, padx=5)
+
+    def verify_adb_connection(self):
         try:
-            return ctypes.windll.shell32.IsUserAnAdmin()
-        except:
-            return False
-
-    def check_windows_features(self):
-        features = [
-            "Microsoft-Windows-Subsystem-Linux",
-            "VirtualMachinePlatform",
-            "HypervisorPlatform"
-        ]
-        
-        for feature in features:
+            adb_path = os.path.join(self.ANDROID_HOME, "platform-tools", "adb.exe")
+            # Wait for device to be ready
+            subprocess.run([adb_path, "wait-for-device"], timeout=60)
+            
+            # Get device status
             result = subprocess.run(
-                f'dism /online /get-featureinfo /featurename:{feature}',
-                capture_output=True,
+                [adb_path, "devices"], 
+                capture_output=True, 
                 text=True
             )
-            if "State : Enabled" not in result.stdout:
-                return False
-        return True
-
-    def check_java(self):
-        try:
-            result = subprocess.run(
-                [os.path.join(self.JAVA_HOME, "bin", "java"), "-version"],
-                capture_output=True,
-                text=True
-            )
-            return result.returncode == 0
-        except:
+            
+            if "emulator-5554" in result.stdout:
+                self.update_status("ADB connected to emulator")
+                return True
             return False
-
-    def check_android_tools(self):
-        required_files = [
-            os.path.join(self.ANDROID_HOME, "cmdline-tools", "latest", "bin", "sdkmanager.bat"),
-            os.path.join(self.ANDROID_HOME, "platform-tools", "adb.exe"),
-            os.path.join(self.ANDROID_HOME, "emulator", "emulator.exe")
-        ]
-        
-        return all(os.path.exists(f) for f in required_files)
-
-    def run_command(self, command, silent=False):
-        try:
-            if silent:
-                result = subprocess.run(
-                    command,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-            else:
-                result = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True
-                )
-            return result
         except Exception as e:
-            self.update_status(f"Error: {str(e)}")
-            return None
+            logging.error(f"ADB connection error: {e}")
+            return False
+
+    def enable_dev_settings(self):
+        try:
+            adb_path = os.path.join(self.ANDROID_HOME, "platform-tools", "adb.exe")
+            # Enable developer options
+            subprocess.run([
+                adb_path, "shell", "settings", "put", 
+                "global", "development_settings_enabled", "1"
+            ])
+            # Enable USB debugging
+            subprocess.run([
+                adb_path, "shell", "settings", "put", 
+                "global", "adb_enabled", "1"
+            ])
+            self.update_status("Developer settings enabled")
+        except Exception as e:
+            logging.error(f"Error enabling dev settings: {e}")
+
+    def setup_for_cursor(self):
+        """Configure environment for Cursor development"""
+        try:
+            # Create Cursor config directory if it doesn't exist
+            cursor_config = os.path.expanduser("~/.cursor/config")
+            os.makedirs(cursor_config, exist_ok=True)
+            
+            # Create or update Android development settings
+            android_settings = {
+                "sdk": self.ANDROID_HOME,
+                "adb": os.path.join(self.ANDROID_HOME, "platform-tools", "adb.exe"),
+                "emulator": os.path.join(self.ANDROID_HOME, "emulator", "emulator.exe"),
+                "default_avd": "Pixel9Pro"
+            }
+            
+            with open(os.path.join(cursor_config, "android.json"), "w") as f:
+                json.dump(android_settings, f, indent=2)
+                
+            self.update_status("Cursor Android development settings configured")
+            self.preferences['cursor_integration'] = True
+            self.save_preferences()
+            
+        except Exception as e:
+            logging.error(f"Error setting up Cursor config: {e}")
+            self.update_status(f"Error configuring Cursor: {str(e)}")
+
+    def download_cmdline_tools(self):
+        try:
+            self.update_status("Downloading Android command-line tools...")
+            
+            response = requests.get("https://developer.android.com/studio")
+            pattern = r'https://dl\.google\.com/android/repository/commandlinetools-win-[\d_]+\.zip'
+            match = re.search(pattern, response.text)
+            
+            if not match:
+                raise Exception("Could not find command-line tools download URL")
+            
+            download_url = match.group(0)
+            response = requests.get(download_url, stream=True)
+            
+            with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
+                cmdline_tools_path = os.path.join(self.ANDROID_HOME, "cmdline-tools", "latest")
+                os.makedirs(cmdline_tools_path, exist_ok=True)
+                
+                for file in zip_ref.namelist():
+                    if file.startswith('cmdline-tools/'):
+                        extract_path = os.path.join(cmdline_tools_path, *file.split('/')[1:])
+                        if file.endswith('/'):
+                            os.makedirs(extract_path, exist_ok=True)
+                        else:
+                            with zip_ref.open(file) as source, open(extract_path, 'wb') as target:
+                                target.write(source.read())
+            
+            return True
+        except Exception as e:
+            logging.error(f"Error downloading command-line tools: {e}")
+            return False
 
     def start_setup(self):
-        if not self.check_admin():
-            messagebox.showerror(
-                "Admin Rights Required",
-                "Please run this program as administrator!"
-            )
-            return
-
-        self.start_button.config(state=tk.DISABLED)
+        self.setup_button.config(state=tk.DISABLED)
         threading.Thread(target=self.setup_process, daemon=True).start()
 
     def setup_process(self):
         try:
-            # Check Java
-            self.update_status("Checking Java installation...", 10)
-            if not self.check_java():
-                self.update_status("Installing/Updating Java...")
-                # Add Java installation logic here
-                
-            # Check Windows features
-            self.update_status("Checking Windows features...", 20)
-            if not self.check_windows_features():
-                self.update_status("Enabling required Windows features...")
-                self.run_command("dism /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart")
-                self.run_command("dism /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart")
-                self.run_command("dism /online /enable-feature /featurename:HypervisorPlatform /all /norestart")
+            # Download and extract command-line tools if needed
+            if not os.path.exists(os.path.join(self.ANDROID_HOME, "cmdline-tools", "latest", "bin", "sdkmanager.bat")):
+                if not self.download_cmdline_tools():
+                    raise Exception("Failed to download Android command-line tools")
 
-            # Setup Android tools
-            self.update_status("Setting up Android tools...", 40)
-            if not self.check_android_tools():
-                self.setup_android_tools()
+            # Set environment variables
+            os.environ["ANDROID_HOME"] = self.ANDROID_HOME
+            os.environ["ANDROID_SDK_ROOT"] = self.ANDROID_SDK_ROOT
+            os.environ["JAVA_HOME"] = self.JAVA_HOME
+            os.environ["PATH"] = f"{self.ANDROID_HOME}\\cmdline-tools\\latest\\bin;{os.environ['PATH']}"
 
-            # Update components
-            self.update_status("Updating Android components...", 60)
-            self.update_android_components()
+            # Accept licenses
+            self.update_status("Accepting Android SDK licenses...")
+            subprocess.run("sdkmanager --licenses", input=b"y\n"*100, shell=True)
 
-            # Create/update emulator
-            self.update_status("Setting up emulator...", 80)
-            self.setup_emulator()
+            # Install components
+            self.update_status("Installing Android components...")
+            subprocess.run('sdkmanager "platform-tools" "platforms;android-34" "system-images;android-34;google_apis;x86_64" "emulator"', shell=True)
 
-            self.update_status("Setup complete!", 100)
+            # Create AVD
+            self.update_status("Creating Android Virtual Device...")
+            subprocess.run('avdmanager create avd -n Pixel9Pro -k "system-images;android-34;google_apis;x86_64" -d pixel --force', shell=True)
+
+            self.update_status("Setup complete!")
             self.launch_button.config(state=tk.NORMAL)
-            
+
+            if self.auto_start_var.get():
+                self.launch_emulator()
+
         except Exception as e:
-            self.update_status(f"Error during setup: {str(e)}")
-            messagebox.showerror("Setup Error", str(e))
+            logging.error(f"Setup error: {e}")
+            self.update_status(f"Error: {str(e)}")
         finally:
-            self.start_button.config(state=tk.NORMAL)
-
-    def setup_android_tools(self):
-        # Add detailed Android tools setup logic
-        pass
-
-    def update_android_components(self):
-        os.environ["ANDROID_HOME"] = self.ANDROID_HOME
-        os.environ["ANDROID_SDK_ROOT"] = self.ANDROID_SDK_ROOT
-        os.environ["JAVA_HOME"] = self.JAVA_HOME
-        
-        # Update SDK components
-        self.run_command(
-            f'"{os.path.join(self.ANDROID_HOME, "cmdline-tools", "latest", "bin", "sdkmanager.bat")}" '
-            '"platform-tools" "platforms;android-34" "system-images;android-34;google_apis;x86_64" "emulator"'
-        )
-
-    def setup_emulator(self):
-        # Create AVD
-        self.run_command(
-            f'"{os.path.join(self.ANDROID_HOME, "cmdline-tools", "latest", "bin", "avdmanager.bat")}" '
-            'create avd -n Pixel9Pro -k "system-images;android-34;google_apis;x86_64" -d pixel --force'
-        )
+            self.setup_button.config(state=tk.NORMAL)
 
     def launch_emulator(self):
-        # Hide console window
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        
-        # Launch emulator in background
-        threading.Thread(
-            target=self.run_emulator,
-            args=(startupinfo,),
-            daemon=True
-        ).start()
+        if self.emulator_process and self.emulator_process.poll() is None:
+            messagebox.showinfo("Already Running", "Emulator is already running!")
+            return
 
-    def run_emulator(self, startupinfo):
-        emulator_path = os.path.join(self.ANDROID_HOME, "emulator", "emulator.exe")
-        gpu_modes = ["host", "swiftshader_indirect", "angle_indirect", "guest"]
-        
-        for mode in gpu_modes:
-            try:
-                subprocess.Popen(
-                    [emulator_path, "-avd", "Pixel9Pro", "-gpu", mode],
-                    startupinfo=startupinfo
-                )
+        try:
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+            emulator_path = os.path.join(self.ANDROID_HOME, "emulator", "emulator.exe")
+            self.emulator_process = subprocess.Popen(
+                [emulator_path, "-avd", "Pixel9Pro", "-gpu", self.preferences.get('last_gpu_mode', 'host')],
+                startupinfo=startupinfo
+            )
+
+            if self.minimize_var.get():
+                self.withdraw()
+
+            # Start ADB connection check
+            def check_adb():
+                time.sleep(10)  # Give emulator time to start
+                if self.verify_adb_connection():
+                    self.enable_dev_settings()
+                    self.update_status("Emulator ready for development")
+                else:
+                    self.update_status("Warning: ADB connection not established")
+
+            threading.Thread(target=check_adb, daemon=True).start()
+
+            if not self.monitor_thread or not self.monitor_thread.is_alive():
+                self.monitor_thread = threading.Thread(target=self.monitor_emulator, daemon=True)
+                self.monitor_thread.start()
+
+        except Exception as e:
+            logging.error(f"Error launching emulator: {e}")
+            messagebox.showerror("Error", f"Failed to launch emulator: {str(e)}")
+
+    def monitor_emulator(self):
+        while True:
+            if self.emulator_process and self.emulator_process.poll() is not None:
+                logging.info("Emulator process ended")
+                self.emulator_process = None
                 break
-            except Exception:
-                continue
+            threading.Event().wait(1.0)
+
+    def update_status(self, message, progress=None):
+        self.status_label.config(text=message)
+        if progress is not None:
+            self.progress['value'] = progress
+        self.update()
+        logging.info(message)
+
+    def show_window(self):
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def on_closing(self):
+        if self.minimize_var.get():
+            self.withdraw()
+        else:
+            self.quit_app()
+
+    def quit_app(self):
+        try:
+            if self.emulator_process and self.emulator_process.poll() is None:
+                self.emulator_process.terminate()
+            self.tray_icon.stop()
+            self.quit()
+        except Exception as e:
+            logging.error(f"Error during shutdown: {e}")
+            self.quit()
 
 if __name__ == "__main__":
     app = EmulatorSetup()
