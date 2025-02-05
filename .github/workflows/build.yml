@@ -3,8 +3,6 @@ name: Build Android Emulator
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
   release:
     types: [created]
 
@@ -27,7 +25,7 @@ jobs:
     
     - name: Build executable
       run: |
-        pyinstaller --onefile --noconsole --icon="icon.ico" --uac-admin --version-file="version.txt" --name="Android Emulator" android_setup.py
+        pyinstaller --onefile --noconsole --icon="C:/Users/Paulj/Desktop/android tools/icon.ico" --uac-admin --version-file="C:/Users/Paulj/Desktop/android tools/version.txt" --name="Android Emulator" android_setup.py
     
     - name: Upload artifact
       uses: actions/upload-artifact@v2
