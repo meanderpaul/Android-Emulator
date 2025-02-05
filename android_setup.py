@@ -18,7 +18,7 @@ import time
 from datetime import datetime
 
 class EmulatorSetup(tk.Tk):
-    VERSION = "1.0.3"
+    VERSION = "1.0.21"
     GITHUB_REPO = "meanderpaul/Android-Emulator"
     COMPANY_NAME = "Android Emulator Setup"
     
