@@ -19,9 +19,12 @@ from datetime import datetime
 
 class EmulatorSetup(tk.Tk):
     VERSION = "1.0.2"
-    GITHUB_REPO = "meanderpaul/Android-Emulator"  # Your actual repo
-
+    GITHUB_REPO = "meanderpaul/Android-Emulator"
+    COMPANY_NAME = "Android Emulator Setup"
+    
     def __init__(self):
+        # Add metadata at the start
+        self.add_metadata()
         super().__init__()
 
         # Setup logging
@@ -56,6 +59,19 @@ class EmulatorSetup(tk.Tk):
         # Initialize emulator process tracking
         self.emulator_process = None
         self.monitor_thread = None
+
+    def add_metadata(self):
+        """Add metadata to help reduce false virus detections"""
+        self.metadata = {
+            'CompanyName': self.COMPANY_NAME,
+            'FileDescription': 'Android Emulator Setup Tool',
+            'FileVersion': self.VERSION,
+            'InternalName': 'android_setup',
+            'LegalCopyright': f'© {datetime.now().year} {self.COMPANY_NAME}',
+            'OriginalFilename': 'android_setup.exe',
+            'ProductName': 'Android Emulator Setup',
+            'ProductVersion': self.VERSION
+        }
 
     def center_window(self):
         screen_width = self.winfo_screenwidth()
