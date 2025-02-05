@@ -11,10 +11,10 @@ jobs:
     runs-on: windows-latest
     
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: '3.12'
     
@@ -28,18 +28,14 @@ jobs:
         pyinstaller --onefile --noconsole --icon="C:/Users/Paulj/Desktop/android tools/icon.ico" --uac-admin --version-file="C:/Users/Paulj/Desktop/android tools/version.txt" --name="Android Emulator" android_setup.py
     
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: Android-Emulator
         path: dist/Android Emulator.exe
+        retention-days: 90
     
     - name: Upload to Release
       if: github.event_name == 'release'
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
       with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./dist/Android Emulator.exe
-        asset_name: Android-Emulator.exe
-        asset_content_type: application/octet-stream
+        files: ./dist/Android Emulator.exe
