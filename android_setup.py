@@ -63,14 +63,14 @@ class EmulatorSetup(tk.Tk):
     def add_metadata(self):
         """Add metadata to help reduce false virus detections"""
         self.metadata = {
-            'CompanyName': self.Paul,
+            'CompanyName': self.COMPANY_NAME,
             'FileDescription': 'Android Emulator Setup Tool',
-            'FileVersion': self.1.0.3,
+            'FileVersion': self.VERSION,
             'InternalName': 'android_setup',
-            'LegalCopyright': f'© {datetime.now().year} {self.Paul}',
+            'LegalCopyright': f'© {datetime.now().year} {self.COMPANY_NAME}',
             'OriginalFilename': 'android_setup.exe',
             'ProductName': 'Android Emulator Setup',
-            'ProductVersion': self.1.0.3
+            'ProductVersion': self.VERSION,
         }
 
     def center_window(self):
