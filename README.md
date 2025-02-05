@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-You're right. Let me provide the complete, properly formatted markdown without any gaps:
-
-```markdown
 # Android Emulator Setup for Cursor
 
 A streamlined setup for Android development using Cursor IDE and Android Emulator.
